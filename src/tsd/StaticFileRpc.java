@@ -50,6 +50,6 @@ final class StaticFileRpc implements HttpRpc {
     final int questionmark = uri.indexOf('?', 3);
     final int pathend = questionmark > 0 ? questionmark : uri.length();
     query.sendFile(staticroot + uri.substring(3, pathend),
-                   uri.contains("nocache") ? 0 : 31536000 /*=1yr*/);
+                   query.isNoCacheRequest() ? 0 : 31536000 /*=1yr*/);
   }
 }

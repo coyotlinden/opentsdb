@@ -104,9 +104,7 @@ final class GraphHandler implements HttpRpc {
   }
 
   public void execute(final TSDB tsdb, final HttpQuery query) {
-    if (!query.hasQueryStringParam("json")
-        && !query.hasQueryStringParam("png")
-        && !query.hasQueryStringParam("ascii")) {
+    if (query.getContentType() == HttpQuery.ContentType.UNKNOWN) {
       String uri = query.request().getUri();
       if (uri.length() < 4) {  // Shouldn't happen...
         uri = "/";             // But just in case, redirect.
@@ -128,8 +126,9 @@ final class GraphHandler implements HttpRpc {
   private void doGraph(final TSDB tsdb, final HttpQuery query)
     throws IOException {
     final String basepath = getGnuplotBasePath(query);
+    //LOG.debug("basepath: " + basepath);
     final long start_time = getQueryStringDate(query, "start");
-    final boolean nocache = query.hasQueryStringParam("nocache");
+    final boolean nocache = query.isNoCacheRequest();
     if (start_time == -1) {
       throw BadRequestException.missingParameter("start");
     }
@@ -195,7 +194,7 @@ final class GraphHandler implements HttpRpc {
     }
     tsdbqueries = null;  // free()
 
-    if (query.hasQueryStringParam("ascii")) {
+    if (query.getContentType() == HttpQuery.ContentType.ASCII) {
       respondAsciiQuery(query, max_age, basepath, plot);
       return;
     }
@@ -283,29 +282,33 @@ final class GraphHandler implements HttpRpc {
 
     private void execute() throws IOException {
       final int nplotted = runGnuplot(query, basepath, plot);
-      if (query.hasQueryStringParam("json")) {
-        final StringBuilder buf = new StringBuilder(64);
-        buf.append("{\"plotted\":").append(nplotted)
-          .append(",\"points\":").append(npoints)
-          .append(",\"etags\":[");
-        for (final HashSet<String> tags : aggregated_tags) {
-          if (tags == null || tags.isEmpty()) {
-            buf.append("[]");
-          } else {
-            HttpQuery.toJsonArray(tags, buf);
+      switch (query.getContentType()) {
+        case JSON:
+          final StringBuilder buf = new StringBuilder(64);
+          buf.append("{\"plotted\":").append(nplotted)
+            .append(",\"points\":").append(npoints)
+            .append(",\"etags\":[");
+          for (final HashSet<String> tags : aggregated_tags) {
+            if (tags == null || tags.isEmpty()) {
+              buf.append("[]");
+            } else {
+              HttpQuery.toJsonArray(tags, buf);
+            }
+            buf.append(',');
           }
-          buf.append(',');
-        }
-        buf.setCharAt(buf.length() - 1, ']');
-        // The "timing" field must remain last, loadCachedJson relies this.
-        buf.append(",\"timing\":").append(query.processingTimeMillis())
-          .append('}');
-        query.sendReply(buf);
-        writeFile(query, basepath + ".json", buf.toString().getBytes());
-      } else if (query.hasQueryStringParam("png")) {
-        query.sendFile(basepath + ".png", max_age);
-      } else {
-        query.internalError(new Exception("Should never be here!"));
+          buf.setCharAt(buf.length() - 1, ']');
+          // The "timing" field must remain last, loadCachedJson relies this.
+          buf.append(",\"timing\":").append(query.processingTimeMillis())
+            .append('}');
+          query.sendReply(buf);
+          writeFile(query, basepath + ".json", buf.toString().getBytes());
+          break;
+        case PNG:
+          query.sendFile(basepath + ".png", max_age);
+          break;
+        default:
+          query.internalError(new Exception("Should never be here!"));
+          break;
       }
 
       // TODO(tsuna): Expire old files from the on-disk cache.
@@ -335,6 +338,7 @@ final class GraphHandler implements HttpRpc {
   private String getGnuplotBasePath(final HttpQuery query) {
     final Map<String, List<String>> q = query.getQueryString();
     q.remove("ignore");
+
     // Super cheap caching mechanism: hash the query string.
     final HashMap<String, List<String>> qs =
       new HashMap<String, List<String>>(q);
@@ -342,6 +346,12 @@ final class GraphHandler implements HttpRpc {
     qs.remove("png");
     qs.remove("json");
     qs.remove("ascii");
+    qs.remove("nocache");
+
+    //for ( Map.Entry<String, List<String>> entry : qs.entrySet() ) {
+    //  LOG.debug("getGnuplotBasePath key: " + entry.getKey());
+    //}
+
     return cachedir + Integer.toHexString(qs.hashCode());
   }
 
@@ -360,8 +370,21 @@ final class GraphHandler implements HttpRpc {
                                  final long end_time,
                                  final int max_age,
                                  final String basepath) throws IOException {
-    final String cachepath = basepath + (query.hasQueryStringParam("ascii")
-                                         ? ".txt" : ".png");
+    final String extension;
+    switch (query.getContentType()) {
+      case JSON:
+        extension = ".json";
+        break;
+      case ASCII:
+        extension = ".txt";
+        break;
+      case PNG:
+        extension = ".png";
+        break;
+      default:
+        return false;
+    }
+    final String cachepath = basepath + extension;
     final File cachedfile = new File(cachepath);
     if (cachedfile.exists()) {
       final long bytes = cachedfile.length();
@@ -374,22 +397,26 @@ final class GraphHandler implements HttpRpc {
       if (staleCacheFile(query, end_time, max_age, cachedfile)) {
         return false;
       }
-      if (query.hasQueryStringParam("json")) {
-        StringBuilder json = loadCachedJson(query, end_time, max_age, basepath);
-        if (json == null) {
-          json = new StringBuilder(32);
-          json.append("{\"timing\":");
-        }
-        json.append(query.processingTimeMillis())
-          .append(",\"cachehit\":\"disk\"}");
-        query.sendReply(json);
-      } else if (query.hasQueryStringParam("png")
-                 || query.hasQueryStringParam("ascii")) {
-        query.sendFile(cachepath, max_age);
-      } else {
-        query.sendReply(HttpQuery.makePage("TSDB Query", "Your graph is ready",
-            "<img src=\"" + query.request().getUri() + "&amp;png\"/><br/>"
-            + "<small>(served from disk cache)</small>"));
+      switch (query.getContentType()) {
+        case JSON:
+          StringBuilder json = loadCachedJson(query, end_time, max_age, basepath);
+          if (json == null) {
+            json = new StringBuilder(32);
+            json.append("{\"timing\":");
+          }
+          json.append(query.processingTimeMillis())
+            .append(",\"cachehit\":\"disk\"}");
+          query.sendReply(json);
+          break;
+        case PNG:
+        case ASCII:
+          query.sendFile(cachepath, max_age);
+          break;
+        default:
+          query.sendReply(HttpQuery.makePage("TSDB Query", "Your graph is ready",
+              "<img src=\"" + query.request().getUri() + "&amp;png\"/><br/>"
+              + "<small>(served from disk cache)</small>"));
+          break;
       }
       graphs_diskcache_hit.incrementAndGet();
       return true;
@@ -402,16 +429,20 @@ final class GraphHandler implements HttpRpc {
     if (json == null || !json.toString().contains("\"plotted\":0")) {
       return false;
     }
-    if (query.hasQueryStringParam("json")) {
-      json.append(query.processingTimeMillis())
-        .append(",\"cachehit\":\"disk\"}");
-      query.sendReply(json);
-    } else if (query.hasQueryStringParam("png")) {
-      query.sendReply(" ");  // Send back an empty response...
-    } else {
+    switch (query.getContentType()) {
+      case JSON:
+        json.append(query.processingTimeMillis())
+          .append(",\"cachehit\":\"disk\"}");
+        query.sendReply(json);
+        break;
+      case PNG:
+        query.sendReply(" ");  // Send back an empty response...
+        break;
+      default:
         query.sendReply(HttpQuery.makePage("TSDB Query", "No results",
             "Sorry, your query didn't return anything.<br/>"
             + "<small>(served from disk cache)</small>"));
+        break;
     }
     graphs_diskcache_hit.incrementAndGet();
     return true;
