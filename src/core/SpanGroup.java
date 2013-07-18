@@ -21,6 +21,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
+//import org.slf4j.Logger;
+//import org.slf4j.LoggerFactory;
+
 /**
  * Groups multiple spans together and offers a dynamic "view" on them.
  * <p>
@@ -44,6 +47,7 @@ import java.util.NoSuchElementException;
  * iterator when using the {@link Span.DownsamplingIterator}.
  */
 final class SpanGroup implements DataPoints {
+  //private final Logger LOG = LoggerFactory.getLogger(SpanGroup.class);
 
   /** Start time (UNIX timestamp in seconds) on 32 bits ("unsigned" int). */
   private final long start_time;
@@ -370,6 +374,7 @@ final class SpanGroup implements DataPoints {
   private final class SGIterator
     implements SeekableView, DataPoint,
                Aggregator.Longs, Aggregator.Doubles {
+    //private final Logger LOG = LoggerFactory.getLogger(SGIterator.class);
 
     /** Extra bit we set on the timestamp of floating point values. */
     private static final long FLAG_FLOAT = 0x8000000000000000L;
@@ -443,7 +448,7 @@ final class SpanGroup implements DataPoints {
         final SeekableView it =
           (downsampler == null
            ? spans.get(i).spanIterator()
-           : spans.get(i).downsampler(sample_interval, downsampler));
+           : spans.get(i).downsampler(start_time, end_time, sample_interval, downsampler));
         iterators[i] = it;
         it.seek(start_time);
         final DataPoint dp;
@@ -472,6 +477,7 @@ final class SpanGroup implements DataPoints {
           }
         }
       }
+      //LOG.debug(toString());
     }
 
     /**
@@ -647,7 +653,10 @@ final class SpanGroup implements DataPoints {
     public long longValue() {
       if (isInteger()) {
         pos = -1;
-        return aggregator.runLong(this);
+        //LOG.debug("pre-aggregator state: " + toString());
+        final long value = aggregator.runLong(this);
+        //LOG.debug("long aggregator returned " + value);
+        return value;
       }
       throw new ClassCastException("current value is a double: " + this);
     }
@@ -655,8 +664,9 @@ final class SpanGroup implements DataPoints {
     public double doubleValue() {
       if (!isInteger()) {
         pos = -1;
+        //LOG.debug("pre-aggregator state: " + toString());
         final double value = aggregator.runDouble(this);
-        //LOG.debug("aggregator returned " + value);
+        //LOG.debug("double aggregator returned " + value);
         if (value != value || Double.isInfinite(value)) {
           throw new IllegalStateException("Got NaN or Infinity: "
              + value + " in this " + this);
@@ -686,8 +696,21 @@ final class SpanGroup implements DataPoints {
      */
     private boolean hasNextValue(boolean update_pos) {
       final int size = iterators.length;
+      long current_ts = (timestamps[current] & TIME_MASK);
+      boolean is_next;
       for (int i = pos + 1; i < size; i++) {
-        if (timestamps[i] != 0) {
+        is_next = false;
+        if (aggregator.interpolate()) {
+          if (timestamps[i] != 0) {
+            is_next = true;
+          }
+        }
+        else {
+          if ((timestamps[i] & TIME_MASK) == current_ts) {
+            is_next = true;
+          }
+        }
+        if (is_next) {
           //LOG.debug("hasNextValue -> true #" + i);
           if (update_pos) {
             pos = i;
@@ -705,7 +728,8 @@ final class SpanGroup implements DataPoints {
         if (rate) {
           throw new AssertionError("Should not be here, impossible! " + this);
         }
-        if (current == pos) {
+        //LOG.debug("nextLongValue interpolate() = " + aggregator.interpolate());
+        if (!aggregator.interpolate() || (current == pos)) {
           return y0;
         }
         final long x = timestamps[current] & TIME_MASK;
@@ -753,6 +777,10 @@ final class SpanGroup implements DataPoints {
           //          + " -> " + y0 + " @ " + x0 + " => " + r);
           return r;
         }
+        //LOG.debug("nextDoubleValue interpolate = " + aggregator.interpolate());
+        if (!aggregator.interpolate()) {
+          return y0;
+        }
         if (current == pos) {
           //LOG.debug("Exact match, no lerp needed");
           return y0;
@@ -783,14 +811,47 @@ final class SpanGroup implements DataPoints {
       throw new NoSuchElementException("no more doubles in " + this);
     }
 
+    private String formatPair(int i) {
+        long ts = timestamps[i];
+        long value = values[i];
+        if (TIME_MASK == ts) {
+            return "(END, n/a)";
+        }
+
+        String str = "(" + (ts & TIME_MASK) + ", ";
+        if ((ts & FLAG_FLOAT) == FLAG_FLOAT) {
+            str += Double.longBitsToDouble(value);
+        }
+        else {
+            str += value;
+        }
+        str += ")";
+        return str;
+    }
+
     public String toString() {
-      return "SpanGroup.Iterator(timestamps=" + Arrays.toString(timestamps)
-        + ", values=" + Arrays.toString(values)
-        + ", current=" + current
+      String str = "SpanGroup.Iterator(";
+      final int size = iterators.length;
+      for (int i = 0; i < size; i++) {
+        str += "\n";
+        str += "iterator #" + i + " (";
+        if (null == iterators[i]) {
+            str += "null";
+        }
+        else {
+            str += iterators[i].toString();
+        }
+        str += "): current" + formatPair(i)
+            + ", next" + formatPair(size+i);
+        if (rate) {
+            str += " prev" + formatPair(2*size+i);
+        }
+      }
+      str += ", current=" + current
         + ", pos=" + pos
         + ", (SpanGroup: " + toStringSharedAttributes()
-        + "), iterators=" + Arrays.toString(iterators)
         + ')';
+      return str;
     }
 
   }
@@ -807,6 +868,7 @@ final class SpanGroup implements DataPoints {
       + ", tags=" + tags
       + ", aggregated_tags=" + aggregated_tags
       + ", rate=" + rate
+      + ", interpolate=" + aggregator.interpolate()
       + ", aggregator=" + aggregator
       + ", downsampler=" + downsampler
       + ", sample_interval=" + sample_interval

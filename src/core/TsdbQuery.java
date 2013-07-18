@@ -295,12 +295,27 @@ final class TsdbQuery implements Query {
     if (spans == null || spans.size() <= 0) {
       return NO_RESULT;
     }
+    // TODO: Limit aggregation time spam when using explicit (non-interpolate) aggregation.
+    final long span_start_time = getScanStartTime();
+    final long span_end_time = getScanEndTime();
+    //final long span_start_time;
+    //final long span_end_time;
+    //if (aggregator.interpolate()) {
+    //  span_start_time = getScanStartTime();
+    //  span_end_time = getScanEndTime();
+    //  LOG.debug("Using scan start/end time: " + span_start_time + " -> " + span_end_time);
+    //}
+    //else {
+    //  span_start_time = getStartTime();
+    //  span_end_time = getEndTime();
+    //  LOG.debug("Using query start/end time: " + span_start_time + " -> " + span_end_time);
+    //}
     if (group_bys == null) {
       // We haven't been asked to find groups, so let's put all the spans
       // together in the same group.
       final SpanGroup group = new SpanGroup(tsdb,
-                                            getScanStartTime(),
-                                            getScanEndTime(),
+                                            span_start_time,
+                                            span_end_time,
                                             spans.values(),
                                             rate,
                                             aggregator,
@@ -345,7 +360,7 @@ final class TsdbQuery implements Query {
       //LOG.info("Span belongs to group " + Arrays.toString(group) + ": " + Arrays.toString(row));
       SpanGroup thegroup = groups.get(group);
       if (thegroup == null) {
-        thegroup = new SpanGroup(tsdb, getScanStartTime(), getScanEndTime(),
+        thegroup = new SpanGroup(tsdb, span_start_time, span_end_time,
                                  null, rate, aggregator,
                                  sample_interval, downsampler);
         // Copy the array because we're going to keep `group' and overwrite
