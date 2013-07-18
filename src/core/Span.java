@@ -424,7 +424,7 @@ final class Span implements DataPoints {
       assert interval_end_time >= interval_start_time: "invalid downsampling window, interval_end_time ("
                 + interval_end_time + ") < interval_start_time (" + interval_start_time + ")";
       //LOG.debug("Downsampling window #" + interval_window + " between time " 
-               + interval_start_time + " -> " + interval_end_time); 
+      //         + interval_start_time + " -> " + interval_end_time); 
       is_integer = true;
       int npoints = 0;
       do {
