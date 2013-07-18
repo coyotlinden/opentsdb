@@ -316,9 +316,11 @@ final class Span implements DataPoints {
   }
 
   /** Package private iterator method to access it as a DownsamplingIterator. */
-  Span.DownsamplingIterator downsampler(final int interval,
+  Span.DownsamplingIterator downsampler(final long start_time,
+                                        final long end_time,
+                                        final int interval,
                                         final Aggregator downsampler) {
-    return new Span.DownsamplingIterator(interval, downsampler);
+    return new Span.DownsamplingIterator(start_time, end_time, interval, downsampler);
   }
 
   /**
@@ -338,6 +340,12 @@ final class Span implements DataPoints {
     /** Mask to use in order to get rid of the flag above. */
     private static final long TIME_MASK  = 0x7FFFFFFFFFFFFFFFL;
 
+    /** The start_time, used to ensure time intervals are aligned between downsamplers. */
+    private final long start_time;
+
+    /** TODO: The end_time, used to limit the data we downsample during non-interpolated aggregation. */
+    private final long end_time;
+
     /** The "sampling" interval, in seconds. */
     private final int interval;
 
@@ -351,22 +359,39 @@ final class Span implements DataPoints {
     private RowSeq.Iterator current_row;
 
     /**
-     * Current timestamp (unsigned 32 bits).
-     * The most significant bit is used to store FLAG_FLOAT.
+     * Integer start/end timestamps (unsigned 32 bits).
      */
-    private long time;
+    private long interval_start_time;
+    private long interval_end_time;
+
+    /*
+     * Downsampled time; when using interpolation this is the average timestamp
+     * of downsampled point, otherwise it is the midpoint of the downsampled interval.
+     */
+    private long downsampled_time;
+
+    /**
+     * Whether value is a long or an integer.
+     */
+    private boolean is_integer;
 
     /** Current value (either an actual long or a double encoded in a long). */
     private long value;
 
     /**
      * Ctor.
+     * @param start_time The start_time, used to ensure time intervals are aligned between downsamplers.
+     * @param end_time The end_time, used to limit the data we downsample.
      * @param interval The interval in seconds wanted between each data point.
      * @param downsampler The downsampling function to use.
      * @param iterator The iterator to access the underlying data.
      */
-    DownsamplingIterator(final int interval,
+    DownsamplingIterator(final long start_time,
+                         final long end_time,
+                         final int interval,
                          final Aggregator downsampler) {
+      this.start_time = start_time;
+      this.end_time = end_time;
       this.interval = interval;
       this.downsampler = downsampler;
       this.current_row = rows.get(0).internalIterator();
@@ -386,8 +411,6 @@ final class Span implements DataPoints {
         // Yes, move on to the next one.
         if (row_index < rows.size() - 1) {  // Do we have more rows?
           current_row = rows.get(++row_index).internalIterator();
-          current_row.next();  // Position the iterator on the first element.
-          return true;
         } else {  // No more rows, can't go further.
           return false;
         }
@@ -403,22 +426,42 @@ final class Span implements DataPoints {
 
       // Look ahead to see if all the data points that fall within the next
       // interval turn out to be integers.  While we do this, compute the
-      // average timestamp of all the datapoints in that interval.
-      long newtime = 0;
+      // average timestamp of all the datapoints in that interval if we are
+      // interpolating, otherwise is the midway point of the start/end of 
+      // the interval.
+      long total_time = 0;
       final short saved_row_index = row_index;
       final int saved_state = current_row.saveState();
       // Since we know hasNext() returned true, we have at least 1 point.
       moveToNext();
-      time = current_row.timestamp() + interval;  // end of this interval.
-      boolean integer = true;
+      // Find the beginning of this interval window.
+      long interval_window = (current_row.timestamp() - start_time) / interval;
+      //LOG.debug("Calculating window: (" + current_row.timestamp() + " - " + start_time +  ") / " + interval + " = " + interval_window);
+      interval_start_time = start_time + interval_window * interval; // beginning of this interval
+      interval_end_time = interval_start_time + interval; // end of this interval.
+      // TODO: Clamp end_time.
+      //if (!downsampler.interpolate() && (interval_end_time > end_time)) {
+      //  interval_end_time = end_time;
+      //}
+      assert interval_end_time >= interval_start_time: "invalid downsampling window, interval_end_time ("
+                + interval_end_time + ") < interval_start_time (" + interval_start_time + ")";
+      //LOG.debug("Downsampling window #" + interval_window + " between time " 
+      //         + interval_start_time + " -> " + interval_end_time); 
+      is_integer = true;
       int npoints = 0;
       do {
         npoints++;
-        newtime += current_row.timestamp();
+        total_time += current_row.timestamp();
         //LOG.debug("Downsampling @ time " + current_row.timestamp());
-        integer &= current_row.isInteger();
-      } while (moveToNext() && current_row.timestamp() < time);
-      newtime /= npoints;
+        is_integer &= current_row.isInteger();
+      } while (moveToNext() && current_row.timestamp() < interval_end_time);
+      if (downsampler.interpolate()) {
+        downsampled_time = total_time / npoints;
+      }
+      else {
+        downsampled_time = (interval_start_time + interval_end_time) / 2;
+      }
+      //LOG.info("Downsampled avg time " + downsampled_time);
 
       // Now that we're done looking ahead, let's go back where we were.
       if (row_index != saved_row_index) {
@@ -427,18 +470,11 @@ final class Span implements DataPoints {
       }
       current_row.restoreState(saved_state);
 
-      // Compute `value'.  This will rely on `time' containing the end time of
-      // this interval...
-      if (integer) {
+      // Compute `value'.
+      if (is_integer) {
         value = downsampler.runLong(this);
       } else {
         value = Double.doubleToRawLongBits(downsampler.runDouble(this));
-      }
-      // ... so update the time only here.
-      time = newtime;
-      //LOG.info("Downsampled avg time " + time);
-      if (!integer) {
-        time |= FLAG_FLOAT;
       }
       return this;
     }
@@ -466,11 +502,11 @@ final class Span implements DataPoints {
     // ------------------- //
 
     public long timestamp() {
-      return time & TIME_MASK;
+      return downsampled_time;
     }
 
     public boolean isInteger() {
-      return (time & FLAG_FLOAT) == 0;
+      return is_integer;
     }
 
     public long longValue() {
@@ -498,15 +534,15 @@ final class Span implements DataPoints {
     public boolean hasNextValue() {
       if (!current_row.hasNext()) {
         if (row_index < rows.size() - 1) {
-          //LOG.info("hasNextValue: next row? " + (rows.get(row_index + 1).timestamp(0) < time));
-          return rows.get(row_index + 1).timestamp(0) < time;
+          //LOG.info("hasNextValue: next row? " + (rows.get(row_index + 1).timestamp(0) < interval_end_time));
+          return rows.get(row_index + 1).timestamp(0) < interval_end_time;
         } else {
           //LOG.info("hasNextValue: false, this is the end");
           return false;
         }
       }
-      //LOG.info("hasNextValue: next point? " + (current_row.peekNextTimestamp() < time));
-      return current_row.peekNextTimestamp() < time;
+      //LOG.info("hasNextValue: next point? " + (current_row.peekNextTimestamp() < interval_end_time));
+      return current_row.peekNextTimestamp() < interval_end_time;
     }
 
     public long nextLongValue() {
@@ -534,7 +570,9 @@ final class Span implements DataPoints {
 
     public String toString() {
       final StringBuilder buf = new StringBuilder();
-      buf.append("Span.DownsamplingIterator(interval=").append(interval)
+      buf.append("Span.DownsamplingIterator(start_time=").append(start_time)
+         .append(", end_time=").append(end_time)
+         .append(", interval=").append(interval)
          .append(", downsampler=").append(downsampler)
          .append(", row_index=").append(row_index)
          .append(", current_row=").append(current_row.toStringSummary())

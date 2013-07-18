@@ -69,6 +69,9 @@ final class HttpQuery {
   private static final Logger LOG = LoggerFactory.getLogger(HttpQuery.class);
 
   private static final String HTML_CONTENT_TYPE = "text/html; charset=UTF-8";
+  private static final String PNG_CONTENT_TYPE = "image/png";
+  private static final String ASCII_CONTENT_TYPE = "text/html";
+  private static final String JSON_CONTENT_TYPE = "application/json";
 
   /** The maximum implemented API version, set when the user doesn't */
   private static final int MAX_API_VERSION = 1;
@@ -124,6 +127,16 @@ final class HttpQuery {
   /** Whether or not to show stack traces in the output */
   private final boolean show_stack_trace;
   
+  /** Whether or not this is a no-cache request. */
+  private final boolean nocache;
+
+  /** Supported content types. */
+  public enum ContentType {
+    JSON, ASCII, PNG, UNKNOWN
+  }
+
+  private final ContentType contenttype;
+
   /**
    * Constructor.
    * @param request The request in this HTTP query.
@@ -137,6 +150,8 @@ final class HttpQuery {
       tsdb.getConfig().getBoolean("tsd.http.show_stack_trace");
     this.method = request.getMethod();
     this.serializer = new HttpJsonSerializer(this);
+    this.nocache = _isNoCacheRequest();
+    this.contenttype = _getContentType();
   }
 
   /**
@@ -250,6 +265,76 @@ final class HttpQuery {
       throw BadRequestException.missingParameter(paramname);
     }
     return value;
+  }
+
+  /**
+   * Returns whether or not a no-cached request was made.
+   * This can happen the following ways:
+   *   * The 'nocache' parameter is given in the query string.
+   *   * 'Cache-Control' header contains 'no-cache'.
+   *   * 'Pragma' header contains 'no-cache'.
+   */
+  private boolean _isNoCacheRequest() {
+    if ( hasQueryStringParam("nocache") ) {
+      return true;
+    }
+    if ( hasMatchingHeaderValue(HttpHeaders.Names.CACHE_CONTROL, "no-cache") ) {
+      return true;
+    }
+    if ( hasMatchingHeaderValue(HttpHeaders.Names.PRAGMA, "no-cache") ) {
+      return true;
+    }
+    return false;
+  }
+  public boolean isNoCacheRequest() {
+    return this.nocache;
+  }
+
+  /**
+   * Determined the requested content type of the request.
+   * This is determined in the following order:
+   *   * If the content type (png, ascii, json) is part of the query params, use that.
+   *   * If the Accept header specifies a specific, type, use that.
+   *   * Otherwise, set to UNKNOWN.  This will generally mean a redirect back to the UI.
+   */
+  private ContentType _getContentType() {
+    if ( hasQueryStringParam("png") ) {
+      return ContentType.PNG;
+    }
+    if ( hasQueryStringParam("ascii") ) {
+      return ContentType.ASCII;
+    }
+    if ( hasQueryStringParam("json") ) {
+      return ContentType.JSON;
+    }
+    if ( hasMatchingHeaderValue(HttpHeaders.Names.ACCEPT, PNG_CONTENT_TYPE) ) {
+      return ContentType.PNG;
+    }
+    if ( hasMatchingHeaderValue(HttpHeaders.Names.ACCEPT, ASCII_CONTENT_TYPE) ) {
+      return ContentType.ASCII;
+    }
+    if ( hasMatchingHeaderValue(HttpHeaders.Names.ACCEPT, JSON_CONTENT_TYPE) ) {
+      return ContentType.JSON;
+    }
+    return ContentType.UNKNOWN;
+  }
+
+  public ContentType getContentType() {
+    return this.contenttype;
+  }
+
+  /**
+   * Returns whether or not the given header exists and contains the given value.
+   * @param headername Name of the header to inspect
+   * @param match Value to match against
+   */
+  public boolean hasMatchingHeaderValue(final String headername, final String match) {
+    for ( final String value : request.getHeaders(headername) ) {
+      if ( value.equals(match) ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -579,25 +664,29 @@ final class HttpQuery {
     tp.calculatePackagingData();
     final String pretty_exc = ThrowableProxyUtil.asString(tp);
     tp = null;
-    if (hasQueryStringParam("json")) {
-      // 32 = 10 + some extra space as exceptions always have \t's to escape.
-      final StringBuilder buf = new StringBuilder(32 + pretty_exc.length());
-      buf.append("{\"err\":\"");
-      HttpQuery.escapeJson(pretty_exc, buf);
-      buf.append("\"}");
-      sendReply(HttpResponseStatus.INTERNAL_SERVER_ERROR, buf);
-    } else if (hasQueryStringParam("png")) {
-      sendAsPNG(HttpResponseStatus.INTERNAL_SERVER_ERROR, pretty_exc, 30);
-    } else {
-      sendReply(HttpResponseStatus.INTERNAL_SERVER_ERROR,
-                makePage("Internal Server Error", "Houston, we have a problem",
-                         "<blockquote>"
-                         + "<h1>Internal Server Error</h1>"
-                         + "Oops, sorry but your request failed due to a"
-                         + " server error.<br/><br/>"
-                         + "Please try again in 30 seconds.<pre>"
-                         + pretty_exc
-                         + "</pre></blockquote>"));
+    switch (contenttype) {
+      case JSON:
+        // 32 = 10 + some extra space as exceptions always have \t's to escape.
+        final StringBuilder buf = new StringBuilder(32 + pretty_exc.length());
+        buf.append("{\"err\":\"");
+        HttpQuery.escapeJson(pretty_exc, buf);
+        buf.append("\"}");
+        sendReply(HttpResponseStatus.INTERNAL_SERVER_ERROR, buf);
+        break;
+      case PNG:
+        sendAsPNG(HttpResponseStatus.INTERNAL_SERVER_ERROR, pretty_exc, 30);
+        break;
+      default:
+        sendReply(HttpResponseStatus.INTERNAL_SERVER_ERROR,
+                  makePage("Internal Server Error", "Houston, we have a problem",
+                           "<blockquote>"
+                           + "<h1>Internal Server Error</h1>"
+                           + "Oops, sorry but your request failed due to a"
+                           + " server error.<br/><br/>"
+                           + "Please try again in 30 seconds.<pre>"
+                           + pretty_exc
+                           + "</pre></blockquote>"));
+        break;
     }
   }
 
@@ -627,25 +716,29 @@ final class HttpQuery {
       }
       return;
     }
-    if (hasQueryStringParam("json")) {
-      final StringBuilder buf = new StringBuilder(10 + 
-          exception.getDetails().length());
-      buf.append("{\"err\":\"");
-      HttpQuery.escapeJson(exception.getMessage(), buf);
-      buf.append("\"}");
-      sendReply(HttpResponseStatus.BAD_REQUEST, buf);
-    } else if (hasQueryStringParam("png")) {
-      sendAsPNG(HttpResponseStatus.BAD_REQUEST, exception.getMessage(), 3600);
-    } else {
-      sendReply(HttpResponseStatus.BAD_REQUEST,
-                makePage("Bad Request", "Looks like it's your fault this time",
-                         "<blockquote>"
-                         + "<h1>Bad Request</h1>"
-                         + "Sorry but your request was rejected as being"
-                         + " invalid.<br/><br/>"
-                         + "The reason provided was:<blockquote>"
-                         + exception.getMessage()
-                         + "</blockquote></blockquote>"));
+    switch (contenttype) {
+      case JSON:
+        final StringBuilder buf = new StringBuilder(10 + 
+            exception.getDetails().length());
+        buf.append("{\"err\":\"");
+        HttpQuery.escapeJson(exception.getMessage(), buf);
+        buf.append("\"}");
+        sendReply(HttpResponseStatus.BAD_REQUEST, buf);
+        break;
+      case PNG:
+        sendAsPNG(HttpResponseStatus.BAD_REQUEST, exception.getMessage(), 3600);
+        break;
+      default:
+        sendReply(HttpResponseStatus.BAD_REQUEST,
+                  makePage("Bad Request", "Looks like it's your fault this time",
+                           "<blockquote>"
+                           + "<h1>Bad Request</h1>"
+                           + "Sorry but your request was rejected as being"
+                           + " invalid.<br/><br/>"
+                           + "The reason provided was:<blockquote>"
+                           + exception.getMessage()
+                           + "</blockquote></blockquote>"));
+        break;
     }
   }
 
@@ -662,13 +755,17 @@ final class HttpQuery {
       }
       return;
     }
-    if (hasQueryStringParam("json")) {
-      sendReply(HttpResponseStatus.NOT_FOUND,
-                new StringBuilder("{\"err\":\"Page Not Found\"}"));
-    } else if (hasQueryStringParam("png")) {
-      sendAsPNG(HttpResponseStatus.NOT_FOUND, "Page Not Found", 3600);
-    } else {
-      sendReply(HttpResponseStatus.NOT_FOUND, PAGE_NOT_FOUND);
+    switch (contenttype) {
+      case JSON:
+        sendReply(HttpResponseStatus.NOT_FOUND,
+                  new StringBuilder("{\"err\":\"Page Not Found\"}"));
+        break;
+      case PNG:
+        sendAsPNG(HttpResponseStatus.NOT_FOUND, "Page Not Found", 3600);
+        break;
+      default:
+        sendReply(HttpResponseStatus.NOT_FOUND, PAGE_NOT_FOUND);
+        break;
     }
   }
 
@@ -1027,7 +1124,7 @@ final class HttpQuery {
     final char c = uri.charAt(end - 1);
     switch (uri.charAt(end)) {
       case 'g':
-        return a == '.' && b == 'p' && c == 'n' ? "image/png" : null;
+        return a == '.' && b == 'p' && c == 'n' ? PNG_CONTENT_TYPE : null;
       case 'l':
         return a == 'h' && b == 't' && c == 'm' ? HTML_CONTENT_TYPE : null;
       case 's':
@@ -1055,7 +1152,7 @@ final class HttpQuery {
   private String guessMimeTypeFromContents(final ChannelBuffer buf) {
     if (!buf.readable()) {
       logWarn("Sending an empty result?! buf=" + buf);
-      return "text/plain";
+      return ASCII_CONTENT_TYPE;
     }
     final int firstbyte = buf.getUnsignedByte(buf.readerIndex());
     switch (firstbyte) {
@@ -1063,11 +1160,11 @@ final class HttpQuery {
         return HTML_CONTENT_TYPE;
       case '{':  // JSON object
       case '[':  // JSON array
-        return "application/json";  // RFC 4627 section 6 mandates this.
+        return JSON_CONTENT_TYPE;  // RFC 4627 section 6 mandates this.
       case 0x89:  // magic number in PNG files.
-        return "image/png";
+        return PNG_CONTENT_TYPE;
     }
-    return "text/plain";  // Default.
+    return ASCII_CONTENT_TYPE;  // Default.
   }
 
   /**

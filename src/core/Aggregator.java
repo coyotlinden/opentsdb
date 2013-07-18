@@ -70,6 +70,11 @@ public interface Aggregator {
   }
 
   /**
+   * Returns whether or not to interpolate values for aggregation.
+   */
+  boolean interpolate();
+
+  /**
    * Aggregates a sequence of {@code long}s.
    * @param values The sequence to aggregate.
    * @return The aggregated value.
@@ -82,5 +87,9 @@ public interface Aggregator {
    * @return The aggregated value.
    */
   double runDouble(Doubles values);
+
+  /* Name of the aggregator. */
+  String getName();
+  String toString();
 
 }

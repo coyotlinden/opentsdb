@@ -45,6 +45,6 @@ final class StaticFileRpc implements HttpRpc {
     final int pathend = questionmark > 0 ? questionmark : uri.length();
     query.sendFile(tsdb.getConfig().getString("tsd.http.staticroot")
                  + uri.substring(2, pathend),  // Drop the "/s"
-                   uri.contains("nocache") ? 0 : 31536000 /*=1yr*/);
+                   query.isNoCacheRequest() ? 0 : 31536000 /*=1yr*/);
   }
 }

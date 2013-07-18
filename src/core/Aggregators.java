@@ -13,39 +13,61 @@
 package net.opentsdb.core;
 
 import java.util.HashMap;
+//import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
+
+//import org.slf4j.Logger;
+//import org.slf4j.LoggerFactory;
 
 /**
  * Utility class that provides common, generally useful aggregators.
  */
 public final class Aggregators {
+  //private static final Logger LOG = LoggerFactory.getLogger(Aggregators.class);
 
   /** Aggregator that sums up all the data points. */
-  public static final Aggregator SUM = new Sum();
+  public static final Aggregator SUM = new Sum("sum", true);
+  /** Aggregator that sums only explicit data points and does no interpolation */
+  public static final Aggregator ESUM = new Sum("esum", false);
 
   /** Aggregator that returns the minimum data point. */
-  public static final Aggregator MIN = new Min();
+  public static final Aggregator MIN = new Min("min", true);
 
   /** Aggregator that returns the maximum data point. */
-  public static final Aggregator MAX = new Max();
+  public static final Aggregator MAX = new Max("max", true);
 
-  /** Aggregator that returns the average value of the data point. */
-  public static final Aggregator AVG = new Avg();
+  /** Aggregator that returns the average value of all the data points. */
+  public static final Aggregator AVG = new Avg("avg", true);
+  /** Aggregator that returns the average value of only explicit data points and does no interpolation. */
+  public static final Aggregator EAVG = new Avg("eavg", false);
 
   /** Aggregator that returns the Standard Deviation of the data points. */
-  public static final Aggregator DEV = new StdDev();
+  public static final Aggregator DEV = new StdDev("dev", true);
+  /** Aggregator that returns the Standard Deviation of only explicit data points and does no interpolation. */
+  public static final Aggregator EDEV = new StdDev("edev", false);
+
+  /** Aggregator that counts only explicit data points and does no interpolation */
+  public static final Aggregator COUNT = new Count("count", false);
+
 
   /** Maps an aggregator name to its instance. */
   private static final HashMap<String, Aggregator> aggregators;
 
   static {
-    aggregators = new HashMap<String, Aggregator>(5);
-    aggregators.put("sum", SUM);
-    aggregators.put("min", MIN);
-    aggregators.put("max", MAX);
-    aggregators.put("avg", AVG);
-    aggregators.put("dev", DEV);
+    aggregators = new HashMap<String, Aggregator>(9);
+    aggregators.put(SUM.getName(), SUM);
+    aggregators.put(MIN.getName(), MIN);
+    aggregators.put(MAX.getName(), MAX);
+    aggregators.put(AVG.getName(), AVG);
+    aggregators.put(DEV.getName(), DEV);
+    aggregators.put(ESUM.getName(), ESUM);
+    aggregators.put(EAVG.getName(), EAVG);
+    aggregators.put(EDEV.getName(), EDEV);
+    aggregators.put(COUNT.getName(), COUNT);
+    //for (final Map.Entry<String, Aggregator> agg : aggregators.entrySet()) {
+    //    LOG.debug("Adding aggregator: " + agg.getKey());
+    //}
   }
 
   private Aggregators() {
@@ -73,31 +95,92 @@ public final class Aggregators {
     throw new NoSuchElementException("No such aggregator: " + name);
   }
 
-  private static final class Sum implements Aggregator {
+  private static class BaseAggregator {
+    /* Whether or not to interpolate values for this aggregation. */
+    private boolean do_interpolation;
+
+    public boolean interpolate() {
+        return do_interpolation;
+    }
+
+    /* Name of the aggregator. */
+    private String name;
+
+    public String getName() {
+        return name;
+    }
+
+    public String toString() {
+      return getName();
+    }
+
+    BaseAggregator(final String name, final boolean interpolate) {
+        this.name = name;
+        this.do_interpolation = interpolate;
+    }
+  }
+
+  private static final class Sum extends BaseAggregator implements Aggregator {
+    //private final Logger LOG = LoggerFactory.getLogger(Sum.class);
+
+    Sum(final String name, final boolean interpolate) {
+        super(name, interpolate);
+    }
 
     public long runLong(final Longs values) {
       long result = values.nextLongValue();
+      //LOG.debug("runLong first value: " + result); 
       while (values.hasNextValue()) {
-        result += values.nextLongValue();
+        long next = values.nextLongValue();
+        //LOG.debug("runLong: " + result  + " + " + next + " = " + (result+next));
+        result += next;
       }
       return result;
     }
 
     public double runDouble(final Doubles values) {
       double result = values.nextDoubleValue();
+      //LOG.debug("runDouble first value: " + result); 
       while (values.hasNextValue()) {
-        result += values.nextDoubleValue();
+        double next = values.nextDoubleValue();
+        //LOG.debug("runDouble: " + result  + " + " + next + " = " + (result+next));
+        result += next;
       }
       return result;
     }
 
-    public String toString() {
-      return "sum";
-    }
-
   }
 
-  private static final class Min implements Aggregator {
+  private static final class Count extends BaseAggregator implements Aggregator {
+
+    Count(final String name, final boolean interpolate) {
+        super(name, interpolate);
+    }
+
+    public long runLong(final Longs values) {
+      int count = 0;
+      while (values.hasNextValue()) {
+        values.nextLongValue();
+        count++;
+      }
+      return count;
+    }
+
+    public double runDouble(final Doubles values) {
+      int count = 0;
+      while (values.hasNextValue()) {
+        values.nextDoubleValue();
+        count++;
+      }
+      return count;
+    }
+  }
+
+  private static final class Min extends BaseAggregator implements Aggregator {
+
+    Min(final String name, final boolean interpolate) {
+        super(name, interpolate);
+    }
 
     public long runLong(final Longs values) {
       long min = values.nextLongValue();
@@ -121,13 +204,13 @@ public final class Aggregators {
       return min;
     }
 
-    public String toString() {
-      return "min";
-    }
-
   }
 
-  private static final class Max implements Aggregator {
+  private static final class Max extends BaseAggregator implements Aggregator {
+
+    Max(final String name, final boolean interpolate) {
+        super(name, interpolate);
+    }
 
     public long runLong(final Longs values) {
       long max = values.nextLongValue();
@@ -151,13 +234,13 @@ public final class Aggregators {
       return max;
     }
 
-    public String toString() {
-      return "max";
-    }
-
   }
 
-  private static final class Avg implements Aggregator {
+  private static final class Avg extends BaseAggregator implements Aggregator {
+
+    Avg(final String name, final boolean interpolate) {
+        super(name, interpolate);
+    }
 
     public long runLong(final Longs values) {
       long result = values.nextLongValue();
@@ -179,9 +262,6 @@ public final class Aggregators {
       return result / n;
     }
 
-    public String toString() {
-      return "avg";
-    }
   }
 
   /**
@@ -193,7 +273,11 @@ public final class Aggregators {
    * paper by B.  P. Welford and is presented in Donald Knuth's Art of
    * Computer Programming, Vol 2, page 232, 3rd edition
    */
-  private static final class StdDev implements Aggregator {
+  private static final class StdDev extends BaseAggregator implements Aggregator {
+
+    StdDev(final String name, final boolean interpolate) {
+        super(name, interpolate);
+    }
 
     public long runLong(final Longs values) {
       double old_mean = values.nextLongValue();
@@ -237,9 +321,5 @@ public final class Aggregators {
       return Math.sqrt(variance / (n - 1));
     }
 
-    public String toString() {
-      return "dev";
-    }
   }
-
 }
