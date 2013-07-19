@@ -1,0 +1,5 @@
+## Configuration parameters for OpenTSDB. Read in by the opentsdb init script.
+
+## Increase max open files for opentsdb
+#MAX_OPEN_FILES=65535
+

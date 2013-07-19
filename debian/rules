@@ -1,0 +1,123 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper.
+# This file was originally written by Joey Hess and Craig Small.
+# As a special exception, when this file is copied by dh-make into a
+# dh-make output file, you may use that output file without restriction.
+# This special exception was added by Craig Small in version 0.37 of dh-make.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+PACKAGE=opentsdb
+
+PREFIX=/usr
+CONFIG=--prefix=$(PREFIX)
+BUILD_DIR=build
+
+bootstrap: bootstrap-stamp
+bootstrap-stamp:
+	sh -x ./bootstrap
+	mkdir -p $(BUILD_DIR)
+
+	touch $@
+
+configure: configure-stamp
+configure-stamp: bootstrap-stamp
+	dh_testdir
+	# Add here commands to configure the package.
+	cd $(BUILD_DIR) && ../configure $(CONFIG)
+
+	touch $@
+
+build: build-stamp
+
+build-stamp: configure-stamp 
+	dh_testdir
+
+	# Add here commands to compile the package.
+	cd $(BUILD_DIR) && $(MAKE)
+	#docbook-to-man debian/opentsdb.sgml > opentsdb.1
+
+	touch $@
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp bootstrap-stamp
+
+	# Add here commands to clean up after the build process.
+	rm -rf $(BUILD_DIR)
+	rm -f ../$(PACKAGE)*.deb
+	rm -f ../$(PACKAGE)*.changes
+	rm -f ../$(PACKAGE)*.build
+
+	dh_clean 
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k 
+	dh_installdirs
+
+	# Add here commands to install the package into debian/opentsdb
+	cd $(BUILD_DIR) && $(MAKE) DESTDIR=$(CURDIR)/debian/$(PACKAGE) install
+
+	# create containing directories
+	install -v -m 755 -o root -g root -d "$(CURDIR)/debian/$(PACKAGE)/etc/opentsdb"
+	install -v -m 755 -o root -g root -d "$(CURDIR)/debian/$(PACKAGE)/usr/share/opentsdb/bin"
+
+	# add additional files not included in $(MAKE) install, above.
+	install -v -m 644 -o root -g root "$(CURDIR)/src/opentsdb.conf.debian" "$(CURDIR)/debian/$(PACKAGE)/etc/opentsdb/opentsdb.conf"
+	install -v -m 644 -o root -g root "$(CURDIR)/src/logback.xml.debian" "$(CURDIR)/debian/$(PACKAGE)/etc/opentsdb/logback.xml"
+	install -v -m 755 -o root -g root "$(CURDIR)/src/mygnuplot.sh" "$(CURDIR)/debian/$(PACKAGE)/usr/share/opentsdb/bin"
+	install -v -m 755 -o root -g root "$(CURDIR)/tools/check_tsd" "$(CURDIR)/debian/$(PACKAGE)/usr/bin/tsdb-check"
+	install -v -m 755 -o root -g root "$(CURDIR)/tools/clean_cache.sh" "$(CURDIR)/debian/$(PACKAGE)/usr/bin/tsdb-clean-cache"
+	install -v -m 755 -o root -g root "$(CURDIR)/tools/tsddrain.py" "$(CURDIR)/debian/$(PACKAGE)/usr/bin/tsdb-drain"
+
+
+
+# Build architecture-independent files here.
+binary-arch:
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-indep: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs 
+	dh_installdocs
+	dh_installexamples
+#	dh_install
+#	dh_installmenu
+#	dh_installdebconf	
+#	dh_installlogrotate
+#	dh_installemacsen
+#	dh_installpam
+#	dh_installmime
+#	dh_python
+
+# To add an init script, uncomment this line and edit debian/init.d and 
+# customize debian/opentsdb.default to suit your needs.
+	dh_installinit --no-start
+
+# To add cron jobs, uncomment this line and make a crontab file named 
+# debian/cron.d, and it will be installed in /etc/cron.d/
+#	dh_installcron
+
+#	dh_installinfo
+	dh_installman
+	dh_link
+	dh_strip
+	dh_compress
+#	dh_fixperms
+#	dh_perl
+#	dh_makeshlibs
+	dh_installdeb
+#	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure

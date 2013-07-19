@@ -6,8 +6,8 @@
 #
 ### BEGIN INIT INFO
 # Provides:          opentsdb
-# Required-Start:    $network $named
-# Required-Stop:     $network $named
+# Required-Start:    $network $named $remote_fs $syslog
+# Required-Stop:     $network $named $remote_fs $syslog
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: Starts OpenTSDB TSD
@@ -42,8 +42,14 @@ export JAVA_HOME
 # Define other required variables
 PID_FILE=/var/run/$NAME.pid
 
-DAEMON=/usr/share/opentsdb/bin/tsdb
+DAEMON=/usr/bin/tsdb
 DAEMON_OPTS=tsd
+
+## See if our executable actually exists and is executable
+[ -x $DAEMON ] || exit 0
+
+## Source in any optional config parameters or env variables
+[ -r /etc/default/opentsdb ] && . /etc/default/opentsdb
 
 case "$1" in
 start)
