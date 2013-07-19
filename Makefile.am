@@ -26,7 +26,7 @@ builddata_SRC := src/BuildData.java
 BUILT_SOURCES = $(builddata_SRC)
 nodist_bin_SCRIPTS = tsdb
 dist_noinst_SCRIPTS = src/create_table.sh
-dist_pkgdata_SCRIPTS := src/mygnuplot.sh src/mygnuplot.bat src/opentsdb.conf
+dist_pkgdata_SCRIPTS := src/mygnuplot.sh src/mygnuplot.bat src/conf/default/opentsdb.conf
 dist_noinst_DATA = pom.xml.in
 tsdb_SRC := \
 	src/core/Aggregator.java	\
@@ -210,7 +210,7 @@ httpui_SRC := \
 
 httpui_DEPS = src/tsd/QueryUi.gwt.xml
 
-dist_pkgdata_DATA = src/logback.xml
+dist_pkgdata_DATA = src/conf/default/logback.xml
 dist_static_DATA = src/tsd/static/favicon.ico
 
 EXTRA_DIST = tsdb.in $(tsdb_SRC) $(test_SRC) \

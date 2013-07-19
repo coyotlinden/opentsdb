@@ -9,4 +9,13 @@ config.log
 config.status
 configure
 pom.xml
+bootstrap-stamp
+build-stamp
+configure-stamp
+debian/files
+debian/opentsdb.debhelper.log
+debian/opentsdb.postinst.debhelper
+debian/opentsdb.postrm.debhelper
+debian/opentsdb.substvars
+debian/opentsdb/*
 .*.swp

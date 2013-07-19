@@ -1,1 +1,1 @@
-/usr/share/opentsdb/bin/mygnuplot.sh /usr/bin/tsdb-gnuplot
+/usr/share/opentsdb/mygnuplot.sh /usr/bin/tsdb-gnuplot

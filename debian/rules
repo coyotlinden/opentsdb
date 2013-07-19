@@ -68,12 +68,15 @@ install: build
 	install -v -m 755 -o root -g root -d "$(CURDIR)/debian/$(PACKAGE)/usr/share/opentsdb/bin"
 
 	# add additional files not included in $(MAKE) install, above.
-	install -v -m 644 -o root -g root "$(CURDIR)/src/opentsdb.conf.debian" "$(CURDIR)/debian/$(PACKAGE)/etc/opentsdb/opentsdb.conf"
-	install -v -m 644 -o root -g root "$(CURDIR)/src/logback.xml.debian" "$(CURDIR)/debian/$(PACKAGE)/etc/opentsdb/logback.xml"
-	install -v -m 755 -o root -g root "$(CURDIR)/src/mygnuplot.sh" "$(CURDIR)/debian/$(PACKAGE)/usr/share/opentsdb/bin"
+	install -v -m 644 -o root -g root "$(CURDIR)/src/conf/debian/opentsdb.conf" "$(CURDIR)/debian/$(PACKAGE)/etc/opentsdb/opentsdb.conf"
+	install -v -m 644 -o root -g root "$(CURDIR)/src/conf/debian/logback.xml" "$(CURDIR)/debian/$(PACKAGE)/etc/opentsdb/logback.xml"
 	install -v -m 755 -o root -g root "$(CURDIR)/tools/check_tsd" "$(CURDIR)/debian/$(PACKAGE)/usr/bin/tsdb-check"
 	install -v -m 755 -o root -g root "$(CURDIR)/tools/clean_cache.sh" "$(CURDIR)/debian/$(PACKAGE)/usr/bin/tsdb-clean-cache"
 	install -v -m 755 -o root -g root "$(CURDIR)/tools/tsddrain.py" "$(CURDIR)/debian/$(PACKAGE)/usr/bin/tsdb-drain"
+
+	# remove unneeded/duplicate files.
+	rm -f "$(CURDIR)/debian/$(PACKAGE)/usr/share/opentsdb/logback.xml"
+	rm -f "$(CURDIR)/debian/$(PACKAGE)/usr/share/opentsdb/opentsdb.conf"
 
 
 
