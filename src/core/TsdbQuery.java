@@ -495,9 +495,12 @@ final class TsdbQuery implements Query {
     // look back by twice MAX_TIMESPAN.  Only when start_time is aligned on a
     // MAX_TIMESPAN boundary then we'll mistakenly scan back by an extra row,
     // but this doesn't really matter.
+    long ts = getStartTime() - Const.MAX_TIMESPAN * 2;
     // Additionally, in case our sample_interval is large, we need to look
     // even further before/after, so use that too.
-    final long ts = getStartTime() - Const.MAX_TIMESPAN * 2 - sample_interval;
+    if (aggregator.interpolate()) {
+        ts -= sample_interval;
+    }
     return ts > 0 ? ts : 0;
   }
 
@@ -509,9 +512,13 @@ final class TsdbQuery implements Query {
     // problem we always add 1 second to the end_time.  Only when the end_time
     // is of the form HH:59:59 then we will scan ahead an extra row, but once
     // again that doesn't really matter.
+    long ts = getEndTime() + Const.MAX_TIMESPAN + 1;
     // Additionally, in case our sample_interval is large, we need to look
     // even further before/after, so use that too.
-    return getEndTime() + Const.MAX_TIMESPAN + 1 + sample_interval;
+    if (aggregator.interpolate()) {
+        ts += sample_interval;
+    }
+    return ts;
   }
 
   /**
