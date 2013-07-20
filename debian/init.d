@@ -37,7 +37,9 @@ for jdir in $JDK_DIRS; do
        JAVA_HOME="$jdir"
     fi
 done
-export JAVA_HOME
+
+# Specify default logback.xml location.
+LOGBACK_CONFIG=/etc/opentsdb/logback.xml
 
 # Define other required variables
 PID_FILE=/var/run/$NAME.pid
@@ -50,6 +52,9 @@ DAEMON_OPTS=tsd
 
 ## Source in any optional config parameters or env variables
 [ -r /etc/default/opentsdb ] && . /etc/default/opentsdb
+
+export JAVA_HOME
+export LOGBACK_CONFIG
 
 case "$1" in
 start)
