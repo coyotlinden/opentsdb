@@ -54,6 +54,7 @@ DAEMON_OPTS=tsd
 [ -r /etc/default/opentsdb ] && . /etc/default/opentsdb
 
 export JAVA_HOME
+export JAVA="$JAVA_HOME/bin/java"
 export LOGBACK_CONFIG
 
 case "$1" in
@@ -66,7 +67,7 @@ start)
 
 	log_action_begin_msg "Starting TSD"
 	if start-stop-daemon --test --start --pidfile "$PID_FILE" \
-		--user "$TSD_USER" --exec "$JAVA_HOME/bin/java" \
+		--user "$TSD_USER" --exec "$JAVA" \
 		>/dev/null; then
 
 		touch "$PID_FILE" && chown "$TSD_USER":"$TSD_GROUP" "$PID_FILE"
@@ -82,7 +83,7 @@ start)
 
 			sleep 1
 			if start-stop-daemon --test --start --pidfile "$PID_FILE" \
-				--user "$TSD_USER" --exec "$JAVA_HOME/bin/java" \
+				--user "$TSD_USER" --exec "$JAVA" \
 				>/dev/null; then
 			
 				if [ -f "$PID_FILE" ]; then
