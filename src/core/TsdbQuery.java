@@ -485,39 +485,48 @@ final class TsdbQuery implements Query {
 
   /** Returns the UNIX timestamp from which we must start scanning.  */
   private long getScanStartTime() {
-    // The reason we look before by `MAX_TIMESPAN * 2' seconds is because of
-    // the following.  Let's assume MAX_TIMESPAN = 600 (10 minutes) and the
-    // start_time = ... 12:31:00.  If we initialize the scanner to look
-    // only 10 minutes before, we'll start scanning at time=12:21, which will
-    // give us the row that starts at 12:30 (remember: rows are always aligned
-    // on MAX_TIMESPAN boundaries -- so in this example, on 10m boundaries).
-    // But we need to start scanning at least 1 row before, so we actually
-    // look back by twice MAX_TIMESPAN.  Only when start_time is aligned on a
-    // MAX_TIMESPAN boundary then we'll mistakenly scan back by an extra row,
-    // but this doesn't really matter.
-    long ts = getStartTime() - Const.MAX_TIMESPAN * 2;
+    long ts = getStartTime();
+
+    // For interpolated aggregation, we need to start scanning at least 1 row
+    // before in order to properly interpolate the graphs near the "edges" of
+    // the graph (otherwise the graph would tail off artificially).
     // Additionally, in case our sample_interval is large, we need to look
     // even further before/after, so use that too.
     if (aggregator.interpolate()) {
-        ts -= sample_interval;
+        ts -= (Const.MAX_TIMESPAN + sample_interval);
     }
+
+    // This is meant to 'snap' a scan time onto a MAX_TIMESPAN boundary.
+    // Let's assume MAX_TIMESPAN = 3600 (1 hour) and the
+    // start_time = ... 12:31:00.  We will need to initialize the scanner to
+    // start scanning at time=12:00:00, which will give us the row containing
+    // the start time 12:31:00.  (remember: rows are always aligned on MAX_TIMESPAN
+    // boundaries -- so in this example, on 1h boundaries).
+    ts /= Const.MAX_TIMESPAN;
+    ts *= Const.MAX_TIMESPAN;
+
     return ts > 0 ? ts : 0;
   }
 
   /** Returns the UNIX timestamp at which we must stop scanning.  */
   private long getScanEndTime() {
-    // For the end_time, we have a different problem.  For instance if our
-    // end_time = ... 12:30:00, we'll stop scanning when we get to 12:40, but
-    // once again we wanna try to look ahead one more row, so to avoid this
-    // problem we always add 1 second to the end_time.  Only when the end_time
-    // is of the form HH:59:59 then we will scan ahead an extra row, but once
-    // again that doesn't really matter.
-    long ts = getEndTime() + Const.MAX_TIMESPAN + 1;
+    long ts = getEndTime();
+    
+    // Once again, for interpolated aggregation we want to look ahead one extra row
+    // for proper graph edges.
     // Additionally, in case our sample_interval is large, we need to look
     // even further before/after, so use that too.
     if (aggregator.interpolate()) {
-        ts += sample_interval;
+        ts += (Const.MAX_TIMESPAN + sample_interval);
     }
+
+    // 'snap' end_time into a MAX_TIMESPAN boundary, as in getScanStartTime.
+    ts /= Const.MAX_TIMESPAN;
+    ts *= Const.MAX_TIMESPAN;
+
+    // Set scan to end one row past the last row we want to include.
+    ts += Const.MAX_TIMESPAN;
+
     return ts;
   }
 
@@ -687,7 +696,11 @@ final class TsdbQuery implements Query {
     buf.append("TsdbQuery(start_time=")
        .append(getStartTime())
        .append(", end_time=")
-       .append(getEndTime());
+       .append(getEndTime())
+       .append(", scan_start_time=")
+       .append(getScanStartTime())
+       .append(", scan_end_time=")
+       .append(getScanEndTime());
    if (tsuids != null && !tsuids.isEmpty()) {
      buf.append(", tsuids=");
      for (final String tsuid : tsuids) {
