@@ -1041,6 +1041,11 @@ final class HttpQuery {
       response.setHeader(HttpHeaders.Names.CACHE_CONTROL,
                          max_age == 0 ? "no-cache" : "max-age=" + max_age);
       HttpHeaders.setContentLength(response, length);
+
+      if (response.getStatus() == HttpResponseStatus.ACCEPTED) {
+        response.setStatus(status);
+      }
+
       chan.write(response);
     }
     final DefaultFileRegion region = new DefaultFileRegion(file.getChannel(),
