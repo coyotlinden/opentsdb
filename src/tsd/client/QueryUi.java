@@ -293,14 +293,17 @@ public class QueryUi implements EntryPoint, HistoryListener {
                 + (Window.getClientHeight() * 4 / 5));
 
     final FlexTable table = new FlexTable();
-    table.setText(0, 0, "From");
+    table.setText(0, 0, "From (UTC)");
     {
       final HorizontalPanel hbox = new HorizontalPanel();
-      hbox.add(new InlineLabel("To"));
+      debugDate = new Date();
+      hbox.add(new InlineLabel("locale: " + debugDate.toLocaleString() + " GMT: " + debugDate.toGMTString()); 
+      hbox.add(new InlineLabel("To (UTC)" + debugDate.toString()));
       final Anchor now = new Anchor("(now)");
       now.addClickHandler(new ClickHandler() {
         public void onClick(final ClickEvent event) {
-          end_datebox.setValue(new Date());
+          end_datebox.setValue(debugDate);
+          //end_datebox.setValue(new Date());
           refreshGraph();
         }
       });
