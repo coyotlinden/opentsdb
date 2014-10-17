@@ -296,7 +296,7 @@ public class QueryUi implements EntryPoint, HistoryListener {
     table.setText(0, 0, "From (UTC)");
     {
       final HorizontalPanel hbox = new HorizontalPanel();
-      Date debugDate = new Date();
+      final Date debugDate = new Date();
       hbox.add(new InlineLabel("locale: " + debugDate.toLocaleString() + " GMT: " + debugDate.toGMTString())); 
       hbox.add(new InlineLabel("To (UTC)" + debugDate.toString()));
       final Anchor now = new Anchor("(now)");
