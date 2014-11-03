@@ -21,6 +21,7 @@ package tsd.client;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Calendar;
 
 import com.google.gwt.core.client.EntryPoint;
 import com.google.gwt.dom.client.Style;
@@ -302,7 +303,10 @@ public class QueryUi implements EntryPoint, HistoryListener {
       final Anchor now = new Anchor("(now)");
       now.addClickHandler(new ClickHandler() {
         public void onClick(final ClickEvent event) {
-          end_datebox.setValue(debugDate);
+          Calendar c = Calendar.getInstance();
+          int utcOffset = c.get(Calendar.ZONE_OFFSET) + c.get(Calendar.DST_OFFSET); 
+          Long utcMilliseconds = c.getTimeInMillis() + utcOffset;
+          end_datebox.setValue(utcMilliseconds);
           //end_datebox.setValue(new Date());
           refreshGraph();
         }
